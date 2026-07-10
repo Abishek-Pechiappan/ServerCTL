@@ -35,3 +35,16 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Node.js / frontend
+node_modules/
+.next/
+out/
+.pnp
+.pnp.*
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vercel
