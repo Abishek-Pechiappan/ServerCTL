@@ -1,9 +1,10 @@
 import psutil
 
+
 def temprature():
     information = psutil.sensors_temperatures()
-    for temp_key,temp_value in information.items():
-        for temp_list in temp_value:
-            if temp_list.label == 'Package id 0':
-                print(temp_list.current)
-        
+    for readings in information.values():
+        for reading in readings:
+            if reading.label == 'Package id 0':
+                return reading.current
+    return None

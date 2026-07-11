@@ -1,5 +1,7 @@
 ## Building the agents for the Dashboard
 
+Commit 1
+
 Completed on making the modules for 
 - CPU 
 - Disk 
@@ -8,7 +10,7 @@ Completed on making the modules for
 - Temp 
 
 
-DAY 2 
+Commit 2
 
 - Added new module to the action section 
 - started using the Docker SDK 
@@ -24,4 +26,13 @@ Commit 3
  - Made an script to start both the frontend and the backend at the same time 
  - Updated the gitignore
  - Added setup script to add admin password and username for the website
+ 
+Commit 4 
+
+ - Connected the Proc with the the frontend and displays Data
+ - Added new agents file that take all the collecters information and display in the frontend
+ - Added Requirements.txt for downloading all the dep
+ - New Python script to install all the backend and frontend dep in one click
+ - Connected the ports.py to the route and also made an frontend to see the data 
+ - Changed the ports fuction to only show Local Address ports and process 
  

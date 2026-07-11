@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from action.actdocker import docker_down, docker_up
+from action.agents import get_latest_snapshot
 from action.system_management import system_update, system_upgrade
 from authentication import create_access_token, get_current_user, verify_credentials
+from security.proc import run_scan
 
 router = APIRouter()
 
@@ -59,3 +61,18 @@ def system_upgrade_route(user: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"status": "ok", "output": output}
+
+
+@router.get("/system/monitor")
+def system_monitor_route(user: str = Depends(get_current_user)):
+    return get_latest_snapshot()
+
+
+@router.get("/security/scan")
+def security_scan_route(user: str = Depends(get_current_user)):
+    return run_scan()
+
+
+@router.get("/network/ports")
+def network_ports_route(user: str = Depends(get_current_user)):
+    return get_latest_snapshot().get("ports", [])

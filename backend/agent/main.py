@@ -1,5 +1,6 @@
 import os
 import sys
+from contextlib import asynccontextmanager
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -7,9 +8,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from action.agents import start_monitor
 from route import router
 
-app = FastAPI(title="ServerCTL")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_monitor()
+    yield
+
+
+app = FastAPI(title="ServerCTL", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

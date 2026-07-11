@@ -61,8 +61,8 @@ def log_suspicious_process(pid, name, owner):
 
 
 def process_monitor():
-    pids = list_pids()
-    for pid in pids:
+    processes = []
+    for pid in list_pids():
         try:
             name = read_process_name(pid)
             owner = read_process_owner(pid)
@@ -70,13 +70,13 @@ def process_monitor():
         except FileNotFoundError:
             continue
 
-        print("PID:", pid, "|", name, "|", owner)
-
-        if is_suspicious_process(cmdline, owner):
-            print("Malware Found")
+        suspicious = is_suspicious_process(cmdline, owner)
+        if suspicious:
             log_suspicious_process(pid, name, owner)
 
-    print("Total Number Process:", len(pids))
+        processes.append({"pid": pid, "name": name, "owner": owner, "suspicious": suspicious})
+
+    return processes
 
 
 def parse_tcp_line(line):
@@ -94,10 +94,20 @@ def log_suspicious_connection(ip, port):
 
 
 def network_monitor():
+    suspicious_connections = []
     with open("/proc/net/tcp") as f:
         next(f)  # header line
         for line in f:
             ip, port = parse_tcp_line(line)
             if port in SUSPICIOUS_PORTS:
                 log_suspicious_connection(ip, port)
+                suspicious_connections.append({"ip": ip, "port": port})
+    return suspicious_connections
+
+
+def run_scan():
+    return {
+        "processes": process_monitor(),
+        "suspicious_connections": network_monitor(),
+    }
 

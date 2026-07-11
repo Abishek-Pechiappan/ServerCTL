@@ -1,4 +1,5 @@
 import psutil
 
+
 def cpu():
-    print(psutil.cpu_percent(interval=1))
+    return psutil.cpu_percent(interval=1)
