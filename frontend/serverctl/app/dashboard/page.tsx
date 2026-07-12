@@ -18,6 +18,12 @@ type Port = {
   process: string | null;
 };
 
+type Tunnel = {
+  hostname: string;
+  service: string;
+  healthy: boolean;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -27,6 +33,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [ports, setPorts] = useState<Port[] | null>(null);
+  const [tunnels, setTunnels] = useState<Tunnel[] | null>(null);
   const [securityScan, setSecurityScan] = useState<unknown>(null);
   const [scanning, setScanning] = useState(false);
 
@@ -76,6 +83,28 @@ export default function DashboardPage() {
 
     fetchPorts();
     const interval = setInterval(fetchPorts, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [checkingAuth]);
+
+  useEffect(() => {
+    if (checkingAuth) return;
+
+    let cancelled = false;
+
+    async function fetchTunnels() {
+      try {
+        const data = await apiFetch("/cloudflared/tunnels");
+        if (!cancelled) setTunnels(data);
+      } catch {
+        // keep showing the last known list on a transient failure
+      }
+    }
+
+    fetchTunnels();
+    const interval = setInterval(fetchTunnels, 5000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -208,6 +237,43 @@ export default function DashboardPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </section>
+
+        <section className="flex flex-col gap-3 rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-900">
+          <h2 className="font-medium text-black dark:text-zinc-50">
+            Tunnels
+          </h2>
+          {!tunnels ? (
+            <p className="text-sm text-zinc-500">Loading...</p>
+          ) : tunnels.length === 0 ? (
+            <p className="text-sm text-zinc-500">No ingress rules found.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {tunnels.map((t) => (
+                <div
+                  key={t.hostname}
+                  className="flex flex-col gap-2 rounded-md border border-black/[.08] p-3 dark:border-white/[.145]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        t.healthy ? "bg-green-500" : "bg-red-500"
+                      }`}
+                    />
+                    <span className="truncate text-sm font-medium text-black dark:text-zinc-50">
+                      {t.hostname}
+                    </span>
+                  </div>
+                  <p className="truncate text-xs text-zinc-500">{t.service}</p>
+                  <iframe
+                    src={`https://${t.hostname}`}
+                    className="h-32 w-full rounded border border-black/[.08] bg-white dark:border-white/[.145]"
+                    sandbox="allow-scripts allow-same-origin"
+                  />
+                </div>
+              ))}
             </div>
           )}
         </section>

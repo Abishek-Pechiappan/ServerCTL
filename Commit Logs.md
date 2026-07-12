@@ -36,3 +36,8 @@ Commit 4
  - Connected the ports.py to the route and also made an frontend to see the data 
  - Changed the ports fuction to only show Local Address ports and process 
  
+Commit 5 
+
+ - Made an new collector cloudflared.py and it conatins functions to check the yml. 
+ - can check all the things hosted on server. 
+ - can preview websites using the preview using iframe. 

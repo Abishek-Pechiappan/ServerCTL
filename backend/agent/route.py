@@ -76,3 +76,8 @@ def security_scan_route(user: str = Depends(get_current_user)):
 @router.get("/network/ports")
 def network_ports_route(user: str = Depends(get_current_user)):
     return get_latest_snapshot().get("ports", [])
+
+
+@router.get("/cloudflared/tunnels")
+def cloudflared_tunnels_route(user: str = Depends(get_current_user)):
+    return get_latest_snapshot().get("cloudflared", [])

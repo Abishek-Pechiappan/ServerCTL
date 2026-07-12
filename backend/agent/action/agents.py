@@ -1,6 +1,7 @@
 import threading
 import time
 
+from collectors.cloudflared import get_tunnels
 from collectors.cpu import cpu
 from collectors.disk import disk
 from collectors.docker_collector import running as docker_running
@@ -29,6 +30,7 @@ def collect_all():
         "temperature": _safe(temprature),
         "docker_running": _safe(docker_running),
         "ports": _safe(list_ports),
+        "cloudflared": _safe(get_tunnels),
     }
 
 
