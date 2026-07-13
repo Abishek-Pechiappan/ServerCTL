@@ -6,7 +6,7 @@ ROOT_DIR = Path(__file__).parent
 
 def main():
     backend = subprocess.Popen(
-        ["myenv/bin/python3", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"],
+        [str(ROOT_DIR / "myenv" / "bin" / "python3"), "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"],
         cwd=ROOT_DIR / "agent",
     )
 
