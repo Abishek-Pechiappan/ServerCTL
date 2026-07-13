@@ -47,3 +47,8 @@ Commit 6
  - Docker file for frontend to work
  - New run.py to run the backend alone
  - Changed to the port 8001
+
+Commit 7 
+
+ - Backend env creating if not existing and npm also for install.py
+ - Changed the docker file and removed public folder which was empty

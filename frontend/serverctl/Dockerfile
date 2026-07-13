@@ -9,6 +9,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN mkdir -p public
 
 # Baked into the JS bundle at build time — the backend runs natively on the
 # same host, so this points at that host's port rather than another container.
