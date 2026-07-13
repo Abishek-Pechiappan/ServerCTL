@@ -41,3 +41,9 @@ Commit 5
  - Made an new collector cloudflared.py and it conatins functions to check the yml. 
  - can check all the things hosted on server. 
  - can preview websites using the preview using iframe. 
+
+Commit 6 
+
+ - Docker file for frontend to work
+ - New run.py to run the backend alone
+ - Changed to the port 8001
