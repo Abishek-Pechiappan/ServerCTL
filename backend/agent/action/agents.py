@@ -5,6 +5,7 @@ from collectors.cloudflared import get_tunnels
 from collectors.cpu import cpu
 from collectors.disk import disk
 from collectors.docker_collector import running as docker_running
+from action.login_noti import active_sessions
 from collectors.ports import list_ports
 from collectors.ram import ram
 from collectors.temp import temprature
@@ -31,6 +32,7 @@ def collect_all():
         "docker_running": _safe(docker_running),
         "ports": _safe(list_ports),
         "cloudflared": _safe(get_tunnels),
+        "ssh_active": _safe(active_sessions),
     }
 
 

@@ -1,11 +1,14 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 WORKDIR /app
 
-# iproute2 provides `ss`, used by collectors/ports.py to read host listening ports
+# iproute2 provides `ss` (collectors/ports.py). util-linux provides `last`/`who`
+# (collectors/login_noti.py) reading the host's wtmp/utmp, bind-mounted in via
+# docker-compose. Pinned to bookworm because the newer trixie-based slim image
+# replaced `last` with wtmpdb (sqlite-backed), which can't read classic wtmp.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends iproute2 \
+    && apt-get install -y --no-install-recommends iproute2 util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

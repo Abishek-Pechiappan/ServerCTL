@@ -4,6 +4,10 @@ venv/
 .venv/
 env/
 
+# Local-only dev scripts (superseded by docker-compose)
+/dev.py
+/backend/run.py
+
 # Python
 __pycache__/
 *.py[cod]

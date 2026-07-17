@@ -62,3 +62,11 @@ Commit 8
 Commit 9 
  
  - Changed the API to get from the localhost instead of public IP 
+
+Commit 10 
+
+ - Removed the .py file for starting the frontend and the backend as docker compose takes care of it now. 
+ - Updated the readme file
+ - Added New feature to see who all log in through ssh 
+ - Added an notification push when someone login to the system 
+ - Setup.py Now also make the webhook so you can add it to the n8n for notification 

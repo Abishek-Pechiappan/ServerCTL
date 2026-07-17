@@ -12,6 +12,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.cloudflared:/root/.cloudflared:ro
+      - /var/log/wtmp:/var/log/wtmp:ro
+      - /run/utmp:/run/utmp:ro
 
   frontend:
     build:

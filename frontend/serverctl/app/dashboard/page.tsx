@@ -24,6 +24,22 @@ type Tunnel = {
   healthy: boolean;
 };
 
+type ActiveSession = {
+  user: string;
+  tty: string;
+  login_time: string;
+  host: string | null;
+};
+
+type LoginHistoryEntry = {
+  user: string;
+  tty: string;
+  host: string | null;
+  login_time: string;
+  logout_time: string | null;
+  still_logged_in: boolean;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -36,6 +52,8 @@ export default function DashboardPage() {
   const [tunnels, setTunnels] = useState<Tunnel[] | null>(null);
   const [securityScan, setSecurityScan] = useState<unknown>(null);
   const [scanning, setScanning] = useState(false);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[] | null>(null);
+  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[] | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -105,6 +123,50 @@ export default function DashboardPage() {
 
     fetchTunnels();
     const interval = setInterval(fetchTunnels, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [checkingAuth]);
+
+  useEffect(() => {
+    if (checkingAuth) return;
+
+    let cancelled = false;
+
+    async function fetchSshActive() {
+      try {
+        const data = await apiFetch("/ssh/active");
+        if (!cancelled) setActiveSessions(data);
+      } catch {
+        // keep showing the last known list on a transient failure
+      }
+    }
+
+    fetchSshActive();
+    const interval = setInterval(fetchSshActive, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [checkingAuth]);
+
+  useEffect(() => {
+    if (checkingAuth) return;
+
+    let cancelled = false;
+
+    async function fetchSshHistory() {
+      try {
+        const data = await apiFetch("/ssh/history");
+        if (!cancelled) setLoginHistory(data);
+      } catch {
+        // keep showing the last known list on a transient failure
+      }
+    }
+
+    fetchSshHistory();
+    const interval = setInterval(fetchSshHistory, 10000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -276,6 +338,72 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="flex flex-col gap-3 rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-900">
+          <h2 className="font-medium text-black dark:text-zinc-50">
+            SSH logins
+          </h2>
+
+          <div>
+            <p className="mb-2 text-sm text-zinc-500">Active now</p>
+            {!activeSessions ? (
+              <p className="text-sm text-zinc-500">Loading...</p>
+            ) : activeSessions.length === 0 ? (
+              <p className="text-sm text-zinc-500">No one is currently logged in.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {activeSessions.map((s, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 rounded-md border border-black/[.08] p-2 text-sm dark:border-white/[.145]"
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                    <span className="font-medium text-black dark:text-zinc-50">{s.user}</span>
+                    <span className="text-zinc-500">{s.tty}</span>
+                    <span className="text-zinc-500">{s.host ?? "local"}</span>
+                    <span className="ml-auto text-xs text-zinc-500">{s.login_time}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm text-zinc-500">History</p>
+            {!loginHistory ? (
+              <p className="text-sm text-zinc-500">Loading...</p>
+            ) : (
+              <div className="max-h-80 overflow-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-zinc-500">
+                      <th className="pb-2 pr-4 font-normal">User</th>
+                      <th className="pb-2 pr-4 font-normal">Host</th>
+                      <th className="pb-2 pr-4 font-normal">Login</th>
+                      <th className="pb-2 font-normal">Logout</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginHistory.map((entry, i) => (
+                      <tr key={i} className="text-black dark:text-zinc-50">
+                        <td className="py-1 pr-4">{entry.user}</td>
+                        <td className="py-1 pr-4">{entry.host ?? "local"}</td>
+                        <td className="py-1 pr-4">{entry.login_time}</td>
+                        <td className="py-1">
+                          {entry.still_logged_in ? (
+                            <span className="text-green-600 dark:text-green-500">still logged in</span>
+                          ) : (
+                            entry.logout_time ?? "-"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="flex flex-col gap-3 rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-900">

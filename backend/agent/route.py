@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from action.actdocker import docker_down, docker_up
 from action.agents import get_latest_snapshot
+from collectors.login_watcher import get_history as get_login_history
 from action.system_management import system_update, system_upgrade
 from authentication import create_access_token, get_current_user, verify_credentials
 from security.proc import run_scan
@@ -81,3 +82,13 @@ def network_ports_route(user: str = Depends(get_current_user)):
 @router.get("/cloudflared/tunnels")
 def cloudflared_tunnels_route(user: str = Depends(get_current_user)):
     return get_latest_snapshot().get("cloudflared", [])
+
+
+@router.get("/ssh/active")
+def ssh_active_route(user: str = Depends(get_current_user)):
+    return get_latest_snapshot().get("ssh_active", [])
+
+
+@router.get("/ssh/history")
+def ssh_history_route(user: str = Depends(get_current_user)):
+    return get_login_history()

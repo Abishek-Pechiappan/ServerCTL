@@ -9,12 +9,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from action.agents import start_monitor
+from collectors.login_watcher import start_login_watcher
 from route import router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_monitor()
+    start_login_watcher()
     yield
 
 
