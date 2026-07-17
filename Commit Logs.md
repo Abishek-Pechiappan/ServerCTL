@@ -54,6 +54,11 @@ Commit 7
  - Changed the docker file and removed public folder which was empty
 
 Commit 8 
+
  - I added an docker compose file to start the backend and frontend 
  - Made it have an local hosting to see the dashboard
  - Updated dockerignore
+
+Commit 9 
+ 
+ - Changed the API to get from the localhost instead of public IP 

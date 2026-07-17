@@ -17,7 +17,7 @@ services:
     build:
       context: ./frontend/serverctl
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_API_URL: http://localhost:8001
     image: serverctl-frontend
     container_name: serverctl-frontend
     restart: unless-stopped
