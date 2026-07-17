@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    image: serverctl-backend
+    container_name: serverctl-backend
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    env_file:
+      - ./backend/.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.cloudflared:/root/.cloudflared:ro
+
+  frontend:
+    build:
+      context: ./frontend/serverctl
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    image: serverctl-frontend
+    container_name: serverctl-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"

@@ -52,3 +52,8 @@ Commit 7
 
  - Backend env creating if not existing and npm also for install.py
  - Changed the docker file and removed public folder which was empty
+
+Commit 8 
+ - I added an docker compose file to start the backend and frontend 
+ - Made it have an local hosting to see the dashboard
+ - Updated dockerignore
