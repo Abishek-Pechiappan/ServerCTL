@@ -70,3 +70,9 @@ Commit 10
  - Added New feature to see who all log in through ssh 
  - Added an notification push when someone login to the system 
  - Setup.py Now also make the webhook so you can add it to the n8n for notification 
+
+Commit 11 
+ - Making the back end to work on only 127.0.0.1
+ - Added Brute force protection for login
+ - env is now hashed
+ - Updated frontend 

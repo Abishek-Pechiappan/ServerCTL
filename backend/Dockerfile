@@ -15,7 +15,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY authentication.py .
+COPY password.py .
 COPY agent ./agent
 
+# Bind to loopback only. With `network_mode: host` in docker-compose this is the
+# host's 127.0.0.1, so the privileged API is reachable from the host (and any
+# reverse proxy / cloudflared tunnel) but not exposed on the LAN.
 WORKDIR /app/agent
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--no-server-header"]

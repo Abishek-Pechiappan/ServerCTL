@@ -1,4 +1,3 @@
-import subprocess
 import docker
 
 _client = None
@@ -15,18 +14,24 @@ def containers_stopped():
 def containers_running():
     return get_client().containers.list()
 
-def docker_down(name: str):         # You can down the container by the name of it
-    running = containers_running()
-    for container in running:
-        print(container.name)
-    for container in running:
-        if container.name == name:
+def list_containers():
+    """All containers (running + stopped) with a UI-friendly status/image."""
+    containers = get_client().containers.list(all=True)
+    result = []
+    for c in containers:
+        image = c.image.tags[0] if c.image and c.image.tags else c.short_id
+        result.append({"name": c.name, "status": c.status, "image": image})
+    result.sort(key=lambda c: (c["status"] != "running", c["name"].lower()))
+    return result
+
+def docker_down(name: str):
+    for container in get_client().containers.list(all=True):
+        if container.name == name and container.status == "running":
             container.kill()
-            
+            return
+
 def docker_up(name: str):
-    stopped = containers_stopped()
-    for container in stopped:
-        print(container.name)
-    for container in stopped:
-        if container.name == name:
+    for container in get_client().containers.list(all=True):
+        if container.name == name and container.status != "running":
             container.start()
+            return
