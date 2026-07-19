@@ -17,9 +17,17 @@ DEBUG = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
 
 # Origins allowed to call the API from a browser. Set ALLOWED_ORIGINS to the
 # tunnel hostname(s), comma-separated, e.g. "https://panel.example.com".
+#
+# The default covers both loopback spellings: the browser treats
+# http://localhost:3000 and http://127.0.0.1:3000 as distinct origins, so
+# allowing only one means the other fails preflight. Both are loopback-only, and
+# the frontend port is published on 127.0.0.1 anyway, so this grants no LAN
+# reach. allow_credentials=True rules out a "*" wildcard.
+_DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
 ALLOWED_ORIGINS = [
     o.strip()
-    for o in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    for o in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
     if o.strip()
 ]
 

@@ -11,8 +11,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public
 
-# Baked into the JS bundle at build time — the backend runs natively on the
-# same host, so this points at that host's port rather than another container.
+# Baked into the JS bundle at build time, so this URL is resolved by the user's
+# browser, not by this container — a compose service name like http://backend:8001
+# would not resolve there. The backend container runs with network_mode: host, so
+# it binds the host's own 127.0.0.1:8001, which is what the browser reaches.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
