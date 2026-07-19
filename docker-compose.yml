@@ -19,7 +19,15 @@ services:
     build:
       context: ./frontend/serverctl
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8001
+        # Read from the repo-root .env (NOT backend/.env). Baked into the JS
+        # bundle at build time, so changing it needs `up -d --build`, not a
+        # restart. Two supported values:
+        #   /api                    - behind nginx/serverctl.conf (single origin,
+        #                             no CORS). Recommended.
+        #   http://localhost:8001   - direct, no proxy. Only works when the
+        #                             browser is on the server itself, and needs
+        #                             ALLOWED_ORIGINS to match the address bar.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
     image: serverctl-frontend
     container_name: serverctl-frontend
     restart: unless-stopped
