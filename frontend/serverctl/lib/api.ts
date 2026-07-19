@@ -1,4 +1,11 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+// Relative by default: the backend serves this bundle and the API from the same
+// origin, so requests are same-origin and never trigger a CORS preflight. The
+// /api prefix keeps the API clear of the static routes — without it, POST /login
+// (the endpoint) would collide with /login (the page).
+//
+// Override only if you split the two back onto separate hosts, in which case the
+// backend needs a matching ALLOWED_ORIGINS entry.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

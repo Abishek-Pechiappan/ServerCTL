@@ -1,35 +1,29 @@
+
+# One service. The dashboard and the API are the same process listening on one
+# port, so there is no inter-service connection to configure and no CORS.
 services:
-  backend:
+  serverctl:
     build:
-      context: ./backend
-    image: serverctl-backend
-    container_name: serverctl-backend
+      context: .
+    image: serverctl
+    container_name: serverctl
     restart: unless-stopped
+
+    # host networking: `ss` needs to see the host's sockets, and uvicorn binds
+    # the host's own 127.0.0.1:3000. pid: host lets psutil and the port
+    # collector resolve real process names rather than the container's.
     network_mode: host
     pid: host
+
     env_file:
       - ./backend/.env
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.cloudflared:/root/.cloudflared:ro
+      # Login history. Recent distros (Arch, Ubuntu 25.10+) no longer maintain
+      # these — systemd 258 disabled utmp. Docker creates an empty root-owned
+      # DIRECTORY at a missing source, so delete these two lines if `ls
+      # /run/utmp` says it does not exist. `python3 preflight.py` checks this.
       - /var/log/wtmp:/var/log/wtmp:ro
       - /run/utmp:/run/utmp:ro
-
-  frontend:
-    build:
-      context: ./frontend/serverctl
-      args:
-        # Read from the repo-root .env (NOT backend/.env). Baked into the JS
-        # bundle at build time, so changing it needs `up -d --build`, not a
-        # restart. Two supported values:
-        #   /api                    - behind nginx/serverctl.conf (single origin,
-        #                             no CORS). Recommended.
-        #   http://localhost:8001   - direct, no proxy. Only works when the
-        #                             browser is on the server itself, and needs
-        #                             ALLOWED_ORIGINS to match the address bar.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
-    image: serverctl-frontend
-    container_name: serverctl-frontend
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"

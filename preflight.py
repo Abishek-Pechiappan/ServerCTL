@@ -18,7 +18,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 BACKEND_ENV = ROOT / "backend" / ".env"
-ROOT_ENV = ROOT / ".env"
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
 
@@ -130,6 +129,24 @@ def check_docker() -> None:
 # Credentials
 # --------------------------------------------------------------------------
 
+def check_stale_containers() -> None:
+    # ServerCTL used to ship as two containers. Upgrading leaves them behind,
+    # and serverctl-frontend still holds port 3000, so the new single container
+    # fails to start with a confusing bind error.
+    code, out = run(["docker", "ps", "-a", "--format", "{{.Names}}"])
+    if code != 0:
+        return
+    names = {line.strip() for line in out.splitlines() if line.strip()}
+    stale = sorted(names & {"serverctl-backend", "serverctl-frontend"})
+    if stale:
+        report(FAIL, "No stale containers",
+               f"Left over from the old two-container setup: {', '.join(stale)}\n"
+               f"They still hold the ports. Remove them:\n"
+               f"  docker rm -f {' '.join(stale)}")
+    else:
+        report(OK, "No stale containers")
+
+
 def check_credentials() -> None:
     if not BACKEND_ENV.exists():
         report(FAIL, "backend/.env exists", "Run:  python3 setup.py")
@@ -185,38 +202,38 @@ def port_busy(port: int) -> bool:
             return True
 
 
-def check_ports() -> None:
-    running = set()
-    code, out = run(["docker", "ps", "--filter", "name=serverctl", "--format", "{{.Names}}"])
-    if code == 0:
-        running = {line.strip() for line in out.splitlines() if line.strip()}
+def app_port() -> int:
+    """The port the container listens on — SERVERCTL_PORT, else the 3000 default.
+    Change it with nginx/set-port.sh, which keeps the nginx config in sync."""
+    raw = read_env(BACKEND_ENV).get("SERVERCTL_PORT", "")
+    return int(raw) if raw.isdigit() else 3000
 
-    for port, service, container in ((8001, "backend", "serverctl-backend"),
-                                     (3000, "frontend", "serverctl-frontend")):
-        if not port_busy(port):
-            report(OK, f"Port {port} free ({service})")
-        elif container in running:
-            report(OK, f"Port {port} in use ({service})", f"held by {container} — already running")
-        else:
-            report(FAIL, f"Port {port} free ({service})",
-                   f"Something else is on {port}. Find it with:  sudo ss -tlnp | grep {port}")
+
+def check_ports() -> None:
+    # One service, one port: the dashboard and the API share a process.
+    port = app_port()
+    code, out = run(["docker", "ps", "--filter", "name=serverctl", "--format", "{{.Names}}"])
+    running = {line.strip() for line in out.splitlines() if line.strip()} if code == 0 else set()
+
+    if not port_busy(port):
+        report(OK, f"Port {port} free")
+    elif "serverctl" in running:
+        report(OK, f"Port {port} in use", "held by the serverctl container — already running")
+    else:
+        report(FAIL, f"Port {port} free",
+               f"Something else is on {port}. Find it with:  sudo ss -tlnp | grep {port}")
 
 
 def check_nginx() -> None:
-    conf = ROOT / "nginx" / "serverctl.conf"
-    api_url = read_env(ROOT_ENV).get("NEXT_PUBLIC_API_URL", "http://localhost:8001")
+    # Entirely optional now: the container serves the UI and API from one origin
+    # on 3000, so nginx is only for moving that to port 80/443 or terminating
+    # TLS without cloudflared.
+    port = app_port()
 
     if not shutil.which("nginx"):
-        report(WARN, "nginx installed",
-               "Optional, but recommended: it puts the UI and API on one origin,\n"
-               "which removes CORS entirely and is required for remote access.\n"
-               "  Arch:   sudo pacman -S nginx\n"
-               "  Debian: sudo apt install nginx\n"
-               f"Then install {conf.relative_to(ROOT)} — see Readme.md.")
-        if api_url == "/api":
-            report(FAIL, "API URL matches setup",
-                   "NEXT_PUBLIC_API_URL=/api needs a proxy, but nginx is not installed.\n"
-                   "Install nginx, or set NEXT_PUBLIC_API_URL=http://localhost:8001.")
+        report(OK, "nginx (optional)",
+               f"Not installed — not needed. The container serves everything on\n"
+               f"127.0.0.1:{port}. Point cloudflared straight at that port.")
         return
 
     installed = any(
@@ -224,24 +241,30 @@ def check_nginx() -> None:
         for d in ("/etc/nginx/conf.d", "/etc/nginx/sites-enabled")
     )
     if not installed:
-        report(WARN, "nginx config installed", "See Readme.md for the cp/ln -s command.")
-    else:
-        code, out = run(["nginx", "-t"])
-        if code == 0:
-            report(OK, "nginx config valid")
-        elif code == 127 or "permission denied" in out.lower():
-            report(WARN, "nginx config valid", "Re-run as root to test:  sudo nginx -t")
-        else:
-            report(FAIL, "nginx config valid", out)
+        report(OK, "nginx (optional)",
+               "Installed but no serverctl.conf — fine unless you want port 80.\n"
+               "See Readme.md for the cp/ln -s command.")
+        return
 
-    if installed and api_url != "/api":
-        report(WARN, "API URL matches setup",
-               f"nginx is configured but NEXT_PUBLIC_API_URL={api_url}.\n"
-               f"Behind the proxy this should be /api, or the browser bypasses\n"
-               f"nginx and you are back to needing CORS. Set it in .env, then:\n"
-               f"  docker compose up -d --build")
-    elif installed:
-        report(OK, "API URL matches setup", "/api (single origin, no CORS)")
+    code, out = run(["nginx", "-t"])
+    if code == 0:
+        report(OK, "nginx config valid")
+    elif code == 127 or "permission denied" in out.lower():
+        report(WARN, "nginx config valid", "Re-run as root to test:  sudo nginx -t")
+    else:
+        report(FAIL, "nginx config valid", out)
+
+    # The failure this catches looks like a crashed app (502 from nginx) but is
+    # really just the two ports disagreeing.
+    conf = ROOT / "nginx" / "serverctl.conf"
+    match = re.search(r"proxy_pass\s+http://127\.0\.0\.1:(\d+)", conf.read_text())
+    if match and int(match.group(1)) != port:
+        report(FAIL, "nginx proxies to the app port",
+               f"nginx forwards to {match.group(1)} but the app listens on {port},\n"
+               f"so every request would 502. Fix both at once:\n"
+               f"  ./nginx/set-port.sh --app {port}")
+    elif match:
+        report(OK, "nginx proxies to the app port", f"both on {port}")
 
 
 # --------------------------------------------------------------------------
@@ -293,6 +316,7 @@ def check_cloudflared() -> None:
 CHECKS = (
     check_distro,
     check_docker,
+    check_stale_containers,
     check_credentials,
     check_ports,
     check_nginx,
