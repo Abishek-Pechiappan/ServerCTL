@@ -88,7 +88,8 @@ also means uvicorn binds the *host's* `127.0.0.1:3000` directly.
 
 - Linux with systemd
 - Docker + the Compose plugin
-- Python 3.10+ on the host (only to run `setup.py` and `preflight.py`)
+- Python 3.10+ on the host — **optional**, only for the `preflight.py` /
+  `setup.py` helpers; not needed to run the app
 
 Node and Python for the app itself live **inside the build** — you do not
 install them.
@@ -114,75 +115,69 @@ Then **log out and back in** — group membership only applies to new sessions.
 
 ```bash
 git clone <repo-url> && cd ServerCTL
-
-python3 setup.py        # 1. create your admin login (interactive)
-python3 preflight.py    # 2. check this machine has everything
-docker compose up -d --build   # 3. build and start
-```
-
-Open <http://localhost:3000>.
-
-### Step 1 — `setup.py`
-
-Prompts for a username and password, hashes the password with **scrypt**, and
-writes `backend/.env`:
-
-```
-ADMIN_USERNAME=you
-ADMIN_PASSWORD_HASH=scrypt:16384:8:1:<salt>:<hash>
-JWT_SECRET_KEY=<64 random hex chars>
-```
-
-The plaintext password is never stored. Re-run it any time to change the
-password; it offers to keep your existing credentials and reuses the existing
-`JWT_SECRET_KEY` so you are not logged out.
-
-`backend/.env` is gitignored, so a fresh clone on another machine **must** run
-`setup.py` before the app will start.
-
-### Step 2 — `preflight.py`
-
-Checks your environment and prints the exact command to fix each problem it
-finds. Run it any time something misbehaves. Output is `OK` / `WARN` / `FAIL`;
-it exits `1` if anything is blocking.
-
-```
-[OK  ] Package manager            Ubuntu 26.04 LTS (apt-get)
-[OK  ] Docker daemon reachable    server 29.6.1
-[OK  ] Compose plugin
-[OK  ] docker.sock present
-[OK  ] No stale containers
-[OK  ] Password hash format       scrypt, ':'-separated
-[OK  ] JWT secret strength
-[OK  ] Port 3000 free
-[OK  ] nginx (optional)
-[WARN] Login history (utmp/wtmp)  Missing: /run/utmp
-[OK  ] CPU temperature sensor     coretemp 'Package id 0' found
-[OK  ] cloudflared config
-```
-
-A `WARN` means it will start fine but a panel will be empty. Only `FAIL` blocks.
-
-### Step 3 — start it
-
-```bash
 docker compose up -d --build
 ```
 
-The first build takes a few minutes (npm install + pip install). Later builds
-reuse cached layers unless you change dependencies.
-
-Useful commands:
+That's it. Open <http://localhost:3000>. On the first run the container creates
+an admin login for you and prints it once:
 
 ```bash
-docker compose logs -f      # follow logs
-docker compose restart      # restart after an .env change
-docker compose up -d --build   # rebuild after a code change
-docker compose down         # stop and remove
+docker compose logs | grep -A6 "generated for you"
 ```
 
-> **Code changes need `--build`, not `restart`.** The dashboard is compiled into
-> the image. A plain restart reruns the old build.
+```
+ No admin password was set, so one was generated for you:
+     username: admin
+     password: 0HGAdLWtyP2MGB-j
+```
+
+Log in with that. It is saved in a Docker volume, so it survives restarts and
+rebuilds — you only see it printed the once.
+
+### Choosing your own password
+
+If you would rather set the login yourself, create `backend/.env` before the
+first start (or any time — then recreate):
+
+```bash
+printf 'ADMIN_USERNAME=you\nADMIN_PASSWORD=your-secret\n' > backend/.env
+docker compose up -d --force-recreate
+```
+
+The container hashes the password with **scrypt** at boot; the plaintext is only
+ever in that file, never stored elsewhere. A value you set here always wins over
+the auto-generated one.
+
+> **`setup.py` still works** and does the same thing up front (writing an
+> `ADMIN_PASSWORD_HASH` and a `JWT_SECRET_KEY` so nothing is stored as
+> plaintext). It is now optional — use it if you prefer not to keep a plaintext
+> password in `backend/.env`, or for local non-Docker runs.
+
+### Optional: check the host first
+
+`preflight.py` verifies the things the container cannot check about the **host**
+— Docker installed, you are in the `docker` group, the port is free, no leftover
+containers. Run it if the first start does not come up:
+
+```bash
+python3 preflight.py
+```
+
+Output is `OK` / `WARN` / `FAIL`; a `WARN` means it starts but a panel will be
+empty, only `FAIL` blocks. The container checks its own side (credentials, built
+UI, socket mount) automatically at boot and logs any problem.
+
+### Everyday commands
+
+```bash
+docker compose logs -f          # follow logs
+docker compose up -d --build    # rebuild after a code change
+docker compose up -d --force-recreate   # apply a backend/.env change
+docker compose down             # stop and remove
+```
+
+> **Code changes need `--build`.** The dashboard is compiled into the image, so a
+> plain `restart` reruns the old build.
 
 ---
 
@@ -267,26 +262,30 @@ port directly.
 
 ## Configuration
 
-Everything lives in `backend/.env`, read at container start.
+Optional settings go in `backend/.env`, read at container start. None are
+required — the entrypoint fills in credentials on first boot (see
+[Installation](#installation)). Set what you want to control:
 
-| Key | Required | Description |
-|---|---|---|
-| `ADMIN_USERNAME` | yes | Login username. Written by `setup.py`. |
-| `ADMIN_PASSWORD_HASH` | yes | scrypt hash. Written by `setup.py` — **never hand-edit**. |
-| `JWT_SECRET_KEY` | yes | Signs session tokens. Changing it logs everyone out. |
-| `SERVERCTL_PORT` | no | Port the app listens on. Defaults to `3000`. Set it with [`nginx/set-port.sh`](nginx/set-port.sh) so the nginx config stays in sync. |
-| `ALLOWED_ORIGINS` | no | Comma-separated CORS origins. Leave unset — only needed if you serve the dashboard from a different host than the API. |
-| `DEBUG` | no | `1` enables `/docs` and `/openapi.json`. Off by default, because they are an unauthenticated map of the API. |
+| Key | Description |
+|---|---|
+| `ADMIN_USERNAME` | Login username. Defaults to `admin`. |
+| `ADMIN_PASSWORD` | Plaintext password, **hashed at boot** (never stored as-is). The simplest way to set your own login. |
+| `ADMIN_PASSWORD_HASH` | A pre-computed scrypt hash from `setup.py`. Use this instead of `ADMIN_PASSWORD` if you would rather not keep a plaintext password in the file. Takes precedence if both are set. |
+| `JWT_SECRET_KEY` | Signs session tokens. Auto-generated and persisted if unset. Changing it logs everyone out. |
+| `SERVERCTL_PORT` | Port the app listens on. Defaults to `3000`. Set it with [`nginx/set-port.sh`](nginx/set-port.sh) so the nginx config stays in sync. |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins. Leave unset — only needed if you serve the dashboard from a different host than the API. |
+| `DEBUG` | `1` enables `/docs` and `/openapi.json`. Off by default, because they are an unauthenticated map of the API. |
 
 The app always binds `127.0.0.1` and that is not configurable — see
 [Security](#security).
 
-After editing, apply with `docker compose restart` (an `.env` change does not
-need a rebuild; a code change does).
+After editing, apply with `docker compose up -d --force-recreate` (an `.env`
+change does not need a rebuild; a code change does).
 
-> `.env` files are read by Compose with variable interpolation, which is why the
-> password hash uses `:` separators rather than `$`. A `$` would be eaten as an
-> undefined variable and silently truncate the hash, making every login fail.
+> `.env` files are read by Compose with variable interpolation, which is why a
+> pre-computed `ADMIN_PASSWORD_HASH` uses `:` separators rather than `$`. A `$`
+> would be eaten as an undefined variable and silently truncate the hash, making
+> every login fail. `setup.py` handles this for you.
 
 ---
 
@@ -357,15 +356,34 @@ In the default single-container setup, real CORS errors are impossible.
 docker compose logs | tail -20
 ```
 
-`RuntimeError: ADMIN_PASSWORD_HASH is not set` → `backend/.env` is missing or has
-the wrong keys. Run `python3 setup.py`.
+The entrypoint bootstraps credentials, so this is usually a mount or socket
+problem rather than missing keys. The log lines prefixed `[serverctl]` say what
+it found.
+
+### I didn't see the generated password
+
+It is printed only on the boot that creates it. Retrieve the current state:
+
+```bash
+docker compose logs | grep -A6 "generated for you"   # if still in the log buffer
+```
+
+If the log has rotated, just set your own and recreate:
+
+```bash
+printf 'ADMIN_USERNAME=you\nADMIN_PASSWORD=your-secret\n' > backend/.env
+docker compose up -d --force-recreate
+```
+
+To start completely fresh (new generated password), remove the data volume:
+`docker compose down && docker volume rm serverctl_serverctl-data`.
 
 ### Login always returns 401
 
-1. Wrong password — re-run `python3 setup.py` to reset it.
-2. A hand-edited or corrupted hash. It must have six `:`-separated fields
-   starting with `scrypt`. If yours contains `$`, it predates a fix and Compose
-   is truncating it — re-run `setup.py`.
+1. Wrong password. Set a known one: put `ADMIN_PASSWORD=...` in `backend/.env`
+   and `docker compose up -d --force-recreate`.
+2. A hand-written `ADMIN_PASSWORD_HASH` that is malformed. Prefer `ADMIN_PASSWORD`
+   (hashed for you) or `python3 setup.py`.
 3. Locked out: 5 failed attempts within 5 minutes blocks your IP for 15 minutes
    and returns **429**, not 401. Wait, or `docker compose restart` to clear the
    in-memory counter.
@@ -553,9 +571,10 @@ will not reach FastAPI. That is the one situation where you need
 
 ```
 Dockerfile              multi-stage: node builds the UI, python runs everything
+docker-entrypoint.sh    first-run credential bootstrap + container self-check
 docker-compose.yml      the single service
-setup.py                creates the admin login
-preflight.py            pre-start environment checks
+setup.py                optional: create the admin login up front
+preflight.py            optional: check the host before first start
 install.py / dev.py     local (non-Docker) development
 nginx/
   serverctl.conf        optional reverse proxy

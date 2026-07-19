@@ -536,19 +536,17 @@ export default function DashboardPage() {
                   <table className="w-full text-left text-sm">
                     <thead className="sticky top-0 bg-white/80 backdrop-blur dark:bg-zinc-900/80">
                       <tr className="text-zinc-500">
-                        <th className="pb-2 pr-3 font-normal">Address</th>
-                        <th className="pb-2 pr-3 font-normal">Port</th>
-                        <th className="pb-2 font-normal">Process</th>
+                        <th className="pb-2 pr-3 font-normal">Application</th>
+                        <th className="pb-2 font-normal">Port</th>
                       </tr>
                     </thead>
                     <tbody>
                       {ports.map((p, i) => (
                         <tr key={i} className="text-black transition-colors hover:bg-black/[.03] dark:text-zinc-50 dark:hover:bg-white/[.04]">
-                          <td className="py-1 pr-3 tabular-nums">{p.address}</td>
-                          <td className="py-1 pr-3">
+                          <td className="py-1 pr-3 text-zinc-600 dark:text-zinc-300">{p.process ?? "-"}</td>
+                          <td className="py-1">
                             <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-600 tabular-nums dark:text-emerald-400">{p.port}</span>
                           </td>
-                          <td className="py-1 text-zinc-600 dark:text-zinc-300">{p.process ?? "-"}</td>
                         </tr>
                       ))}
                     </tbody>

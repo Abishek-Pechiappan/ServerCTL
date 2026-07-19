@@ -15,10 +15,17 @@ services:
     network_mode: host
     pid: host
 
+    # Optional: on a first run there is no backend/.env yet, and the entrypoint
+    # bootstraps credentials itself. Set a password by creating this file with
+    # ADMIN_PASSWORD=... (see the Readme), or let the entrypoint generate one.
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
 
     volumes:
+      # Holds the auto-generated admin hash and JWT secret so they survive a
+      # container recreate. Ignored once you provide them in backend/.env.
+      - serverctl-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.cloudflared:/root/.cloudflared:ro
       # Login history. Recent distros (Arch, Ubuntu 25.10+) no longer maintain
@@ -27,3 +34,6 @@ services:
       # /run/utmp` says it does not exist. `python3 preflight.py` checks this.
       - /var/log/wtmp:/var/log/wtmp:ro
       - /run/utmp:/run/utmp:ro
+
+volumes:
+  serverctl-data:

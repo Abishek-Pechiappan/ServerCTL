@@ -40,6 +40,13 @@ COPY backend/agent ./agent
 # main.py looks here for the dashboard; see STATIC_DIR.
 COPY --from=frontend /build/out ./static
 
+# Runs on every boot: creates the admin login and JWT secret if they are not
+# already set (what setup.py did by hand), then self-checks and exec's the CMD.
+# This is what lets a fresh clone start with just `docker compose up`.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["docker-entrypoint.sh"]
+
 # Started via main.py rather than the uvicorn CLI so the listen port comes from
 # SERVERCTL_PORT at runtime. An exec-form CMD does not expand variables, so
 # hardcoding --port here would make the setting silently unreachable.
