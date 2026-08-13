@@ -1,19 +1,18 @@
-ServerCTL 
+# ServerCTL
 
- - Making an application to control your home server from the dashboard.
+A single-container web dashboard for one Linux server: CPU, RAM, disk and
+temperature graphs, open ports, Docker containers you can start and stop,
+cloudflared tunnel health, SSH sessions, and a basic process/connection scan.
 
- Use the install.py to install the dependencies.
+![The ServerCTL dashboard](docs/screenshots/dashboard-dark-viewport.png)
 
- Also sun the setup.py to setup the login for the dashboard 
+<details>
+<summary><b>Every panel</b> (full-height screenshot)</summary>
 
- To start the frontend and the backend run 
+![The complete ServerCTL dashboard](docs/screenshots/dashboard-dark.png)
 
- - docker compose up -d --build
+</details>
 
-<<<<<<< Updated upstream
- You can see the dashboard in the localhost:3000
- 
-=======
 <sub>Screenshots use synthetic data — IANA-reserved documentation ranges, not a
 real host. See [`docs/screenshots/demo-server.py`](docs/screenshots/demo-server.py).</sub>
 
@@ -104,4 +103,3 @@ docker compose up -d --force-recreate    # after a backend/.env change
 
 Provided as is, with no warranty — see the licence text. Given what this tool can
 do to a machine, that disclaimer is worth reading rather than skipping.
->>>>>>> Stashed changes
