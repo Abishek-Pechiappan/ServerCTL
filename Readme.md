@@ -34,7 +34,7 @@ cannot parse this `docker-compose.yml`). Node and Python for the app itself live
 inside the build.
 
 ```bash
-git clone <repo-url> && cd ServerCTL
+git clone https://github.com/Abishek-Pechiappan/ServerCTL.git && cd ServerCTL
 docker compose up -d --build
 ```
 
