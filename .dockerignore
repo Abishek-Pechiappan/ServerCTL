@@ -1,0 +1,53 @@
+# The build context is now the repo root (it used to be ./backend and
+# ./frontend/serverctl separately). Docker only reads the .dockerignore at the
+# context root, so the ones inside backend/ and frontend/serverctl/ no longer
+# apply to anything and this file replaces both.
+#
+# Two things go wrong without it. The context sent to the daemon grows by ~60 MB
+# of virtualenv on every build, and — worse — `COPY frontend/serverctl/ ./`
+# overlays a host-installed node_modules on top of the `npm ci` result from the
+# layer above. install.py runs `npm install` in exactly that directory, so anyone
+# who followed the local-development instructions would build the image against
+# their host's resolved dependency tree instead of the lockfile's.
+#
+# NOTE: these are not .gitignore patterns. Docker matches each pattern against
+# the whole path relative to the context root, and a plain `node_modules` matches
+# only a top-level one — nested paths need the `**/` prefix. Getting this wrong
+# fails silently: the build still works, it just copies everything.
+
+# Secrets. backend/.env is nested, hence **/ — it holds the admin password hash
+# and JWT signing key, and the context is a copy that leaves the host.
+**/.env
+**/.env.*
+**/*.secret
+
+# Python
+**/myenv
+**/venv
+**/.venv
+**/__pycache__
+**/*.py[cod]
+
+# Node — must be resolved from the lockfile inside the image, never copied in
+**/node_modules
+**/.next
+**/out
+**/*.tsbuildinfo
+
+# Not referenced by any COPY in the Dockerfile
+.git
+.gitignore
+.github
+**/*.md
+nginx
+docker-compose.yml
+install.py
+setup.py
+preflight.py
+selftest.py
+
+# Editor / OS noise
+.vscode
+.idea
+**/*.swp
+**/.DS_Store

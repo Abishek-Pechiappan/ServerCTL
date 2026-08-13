@@ -1,27 +1,44 @@
+
+# One service. The dashboard and the API are the same process listening on one
+# port, so there is no inter-service connection to configure and no CORS.
 services:
-  backend:
+  serverctl:
     build:
-      context: ./backend
-    image: serverctl-backend
-    container_name: serverctl-backend
+      context: .
+    image: serverctl
+    container_name: serverctl
     restart: unless-stopped
+
+    # host networking: `ss` needs to see the host's sockets, and uvicorn binds
+    # the host's own 127.0.0.1:3000. pid: host lets psutil and the port
+    # collector resolve real process names rather than the container's.
     network_mode: host
     pid: host
+
+    # Optional: on a first run there is no backend/.env yet, and the entrypoint
+    # bootstraps credentials itself. Set a password by creating this file with
+    # ADMIN_PASSWORD=... (see docs/configuration.md), or let the entrypoint
+    # generate one.
+    #
+    # The `path:`/`required:` long form needs Compose v2.24+ (Jan 2024). On an
+    # older plugin this fails to parse with a message that does not mention the
+    # version; check with `docker compose version`.
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
+
     volumes:
+      # Holds the auto-generated admin hash and JWT secret so they survive a
+      # container recreate. Ignored once you provide them in backend/.env.
+      - serverctl-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.cloudflared:/root/.cloudflared:ro
+      # Login history. Recent distros (Arch, Ubuntu 25.10+) no longer maintain
+      # these — systemd 258 disabled utmp. Docker creates an empty root-owned
+      # DIRECTORY at a missing source, so delete these two lines if `ls
+      # /run/utmp` says it does not exist. `python3 preflight.py` checks this.
       - /var/log/wtmp:/var/log/wtmp:ro
       - /run/utmp:/run/utmp:ro
 
-  frontend:
-    build:
-      context: ./frontend/serverctl
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:8001
-    image: serverctl-frontend
-    container_name: serverctl-frontend
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
+volumes:
+  serverctl-data:

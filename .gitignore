@@ -19,11 +19,37 @@ __pycache__/
 dist/
 build/
 .eggs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
 
 # Environment variables / secrets
 .env
 .env.*
+# ...but a committed template is useful, and .env.* would otherwise swallow it.
+!.env.example
 *.secret
+
+# Runtime state. The entrypoint writes the admin password hash and the JWT signing
+# key into SERVERCTL_DATA_DIR; that is a named Docker volume by default, but this
+# covers pointing it at a local path or bind-mounting ./data:/data.
+/data/
+
+# TLS material, for terminating HTTPS yourself instead of using a tunnel.
+*.pem
+*.key
+*.crt
+*.p12
+
+# cloudflared tunnel credentials, if you keep a copy beside the project instead of
+# in ~/.cloudflared. Each tunnel's file is named <tunnel-uuid>.json.
+/cloudflared/
+*.tunnel.json
+
+# Local compose customisation — dropping the wtmp/utmp mounts on a distro that no
+# longer maintains them, changing a port, adding a bind mount. Machine-specific.
+docker-compose.override.yml
+docker-compose.override.yaml
 
 # IDE / editor
 .vscode/
