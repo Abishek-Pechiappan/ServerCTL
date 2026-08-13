@@ -11,8 +11,18 @@ HISTORY_PATTERN = re.compile(
 )
 
 
+# Both commands read utmp/wtmp, which live on a bind mount. A stale or broken
+# mount makes them block, and the snapshot loop would block with them.
+_TIMEOUT_SECONDS = 10
+
+
 def active_sessions():
-    result = subprocess.run(["who"], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["who"], capture_output=True, text=True, timeout=_TIMEOUT_SECONDS
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
 
     sessions = []
     for line in result.stdout.splitlines():
@@ -29,11 +39,15 @@ def active_sessions():
 
 
 def login_history(limit=50):
-    result = subprocess.run(
-        ["last", "--time-format", "iso", "-n", str(limit)],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["last", "--time-format", "iso", "-n", str(limit)],
+            capture_output=True,
+            text=True,
+            timeout=_TIMEOUT_SECONDS,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
 
     entries = []
     for line in result.stdout.splitlines():

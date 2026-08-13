@@ -79,8 +79,13 @@ done
 [ -f "$CONF" ] || die "not found: $CONF"
 
 if [ "$SHOW" = 1 ]; then
-    printf 'listen (nginx) : %s\n' "$(current_listen || echo "$DEFAULT_LISTEN")"
-    printf 'app (container): %s\n' "$(current_app || echo "$DEFAULT_APP")"
+    # Substitute on empty, not on exit status: both readers end in `|| true`, so
+    # they always succeed and a `|| echo default` fallback could never fire — a
+    # config with no listen line printed a blank value instead of the default.
+    shown_listen="$(current_listen)"
+    shown_app="$(current_app)"
+    printf 'listen (nginx) : %s\n' "${shown_listen:-$DEFAULT_LISTEN}"
+    printf 'app (container): %s\n' "${shown_app:-$DEFAULT_APP}"
     exit 0
 fi
 
@@ -119,20 +124,30 @@ trap - EXIT
 # --- app port ---------------------------------------------------------------
 # Written to backend/.env because docker-compose passes that file to the
 # container, and main.py reads SERVERCTL_PORT from the environment.
-if [ -f "$ENV_FILE" ]; then
-    if grep -q '^SERVERCTL_PORT=' "$ENV_FILE"; then
-        sed -i -E "s|^SERVERCTL_PORT=.*|SERVERCTL_PORT=${APP}|" "$ENV_FILE"
-    else
-        # A file not ending in a newline would otherwise get SERVERCTL_PORT
-        # glued onto the end of the last line, silently corrupting whatever
-        # value was there (JWT_SECRET_KEY, typically).
-        [ -s "$ENV_FILE" ] && [ -n "$(tail -c 1 "$ENV_FILE")" ] && printf '\n' >> "$ENV_FILE"
-        printf 'SERVERCTL_PORT=%s\n' "$APP" >> "$ENV_FILE"
-    fi
-    env_note="backend/.env updated"
+# Created if missing rather than reported. By this point the nginx side has
+# already been rewritten, so skipping the app side leaves the proxy pointing at a
+# port nothing is listening on — precisely the 502-that-looks-like-a-crash this
+# script exists to prevent. No entry in this file is required any more (the
+# container bootstraps its own credentials), so a file holding only a port is
+# perfectly valid and setup.py is not a prerequisite.
+if [ ! -f "$ENV_FILE" ]; then
+    mkdir -p "$(dirname "$ENV_FILE")"
+    printf '# Created by nginx/set-port.sh — see docs/configuration.md.\n' > "$ENV_FILE"
+    env_created=" (created)"
 else
-    env_note="backend/.env does not exist yet — run 'python3 setup.py' first, then re-run this script"
+    env_created=""
 fi
+
+if grep -q '^SERVERCTL_PORT=' "$ENV_FILE"; then
+    sed -i -E "s|^SERVERCTL_PORT=.*|SERVERCTL_PORT=${APP}|" "$ENV_FILE"
+else
+    # A file not ending in a newline would otherwise get SERVERCTL_PORT
+    # glued onto the end of the last line, silently corrupting whatever
+    # value was there (JWT_SECRET_KEY, typically).
+    [ -s "$ENV_FILE" ] && [ -n "$(tail -c 1 "$ENV_FILE")" ] && printf '\n' >> "$ENV_FILE"
+    printf 'SERVERCTL_PORT=%s\n' "$APP" >> "$ENV_FILE"
+fi
+env_note="backend/.env updated${env_created}"
 
 cat <<EOF
 

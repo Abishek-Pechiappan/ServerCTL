@@ -97,6 +97,9 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
+              // Matches the server-side caps in route.py, so the form cannot
+              // produce a request the API will reject with a 422.
+              maxLength={256}
               required
             />
           </div>
@@ -109,6 +112,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              maxLength={1024}
               required
             />
           </div>

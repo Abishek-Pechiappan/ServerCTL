@@ -11,8 +11,10 @@
 
 set -euo pipefail
 
-# password.py lives at /app; the app is launched from /app/agent.
-export PYTHONPATH=/app
+# password.py lives at /app; the app is launched from /app/agent. Overridable only
+# so this script can be exercised outside a container — nothing sets PYTHONPATH in
+# the image, so the default is what actually runs.
+export PYTHONPATH="${PYTHONPATH:-/app}"
 DATA_DIR="${SERVERCTL_DATA_DIR:-/data}"
 mkdir -p "$DATA_DIR"
 
@@ -44,9 +46,15 @@ elif [ -n "${ADMIN_PASSWORD:-}" ]; then
     ADMIN_PASSWORD_HASH="$(hash_pw "$ADMIN_PASSWORD")"
     export ADMIN_PASSWORD_HASH
     log "hashed ADMIN_PASSWORD from backend/.env"
-    case "$ADMIN_PASSWORD" in
-        admin|password|changeme|"")
-            log "WARNING: weak admin password — change ADMIN_PASSWORD in backend/.env" ;;
+    # Lowercased so "Admin" is caught too. The empty case the previous list
+    # included was unreachable — this branch already required a non-empty value —
+    # and the password itself is deliberately not logged.
+    case "$(printf '%s' "$ADMIN_PASSWORD" | tr '[:upper:]' '[:lower:]')" in
+        admin|password|changeme|serverctl|123456)
+            log "WARNING: that admin password is trivially guessable, and this account"
+            log "         has effective root on the host. Set a long, unique"
+            log "         ADMIN_PASSWORD in backend/.env, then:"
+            log "           docker compose up -d --force-recreate" ;;
     esac
 elif [ -f "$DATA_DIR/admin_password_hash" ]; then
     ADMIN_PASSWORD_HASH="$(cat "$DATA_DIR/admin_password_hash")"
@@ -70,6 +78,14 @@ else
 fi
 
 export ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+
+# The hash is all the app needs from here on, so drop the plaintext before exec'ing
+# it. Otherwise ADMIN_PASSWORD stays in the app process's environment and is
+# readable from /proc/<pid>/environ — which, under `pid: host`, means any root
+# process on the machine. It remains visible in `docker inspect` (Compose puts
+# env_file values in the container config), so this is defence in depth, not a
+# substitute for treating backend/.env as a secret.
+unset ADMIN_PASSWORD
 
 # --- self-check (container-side only) ---------------------------------------
 # Host-side checks — is Docker installed, are you in the docker group, is a

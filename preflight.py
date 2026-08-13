@@ -147,43 +147,72 @@ def check_stale_containers() -> None:
         report(OK, "No stale containers")
 
 
+WEAK_PASSWORDS = {"admin", "password", "changeme", "serverctl", "123456"}
+
+
 def check_credentials() -> None:
+    """Validate backend/.env if it exists — its absence is not a problem.
+
+    Nothing here is required any more. docker-compose marks the file
+    `required: false` and docker-entrypoint.sh generates an admin password and a
+    JWT secret on first boot, persisting both to the data volume. This check used
+    to FAIL on a missing file and again on ADMIN_PASSWORD-without-a-hash, which
+    are the two documented ways to start the app — so a correct fresh clone was
+    reported as broken and preflight exited 1.
+
+    What is still worth failing on is a file that exists but says something the
+    container cannot act on.
+    """
     if not BACKEND_ENV.exists():
-        report(FAIL, "backend/.env exists", "Run:  python3 setup.py")
+        report(OK, "Credentials", "No backend/.env — the entrypoint generates an admin\n"
+                                  "password on first boot and prints it once:\n"
+                                  "  docker compose logs | grep -A6 'generated for you'")
         return
 
     env = read_env(BACKEND_ENV)
+    password = env.get("ADMIN_PASSWORD", "")
+    hashed = env.get("ADMIN_PASSWORD_HASH", "")
 
-    if "ADMIN_PASSWORD" in env and "ADMIN_PASSWORD_HASH" not in env:
-        # authentication.py raises at import if the hash is absent, so the
-        # container crash-loops rather than starting with a plaintext password.
-        report(FAIL, "Admin password hashed",
-               "backend/.env has ADMIN_PASSWORD, but the backend requires\n"
-               "ADMIN_PASSWORD_HASH and will refuse to start. Run:  python3 setup.py")
-        return
-
-    missing = [k for k in ("ADMIN_USERNAME", "ADMIN_PASSWORD_HASH", "JWT_SECRET_KEY")
-               if not env.get(k)]
-    if missing:
-        report(FAIL, "Credentials set", f"Missing from backend/.env: {', '.join(missing)}\n"
-                                        f"Run:  python3 setup.py")
-        return
-
-    # Must match the encoding in backend/password.py, which uses ':' rather than
-    # '$' because docker-compose interpolates '$' out of env files.
-    parts = env["ADMIN_PASSWORD_HASH"].split(":")
-    if len(parts) != 6 or parts[0] != "scrypt":
-        detail = "Hash is not in the expected scrypt:N:r:p:salt:hash form."
-        if "$" in env["ADMIN_PASSWORD_HASH"]:
-            detail += ("\nIt still uses the old '$' separator, which compose mangles —\n"
-                       "every login returns 401. Re-run:  python3 setup.py")
-        report(FAIL, "Password hash format", detail)
+    if hashed:
+        # Must match the encoding in backend/password.py, which uses ':' rather
+        # than '$' because docker-compose interpolates '$' out of env files.
+        parts = hashed.split(":")
+        if len(parts) != 6 or parts[0] != "scrypt":
+            detail = "Hash is not in the expected scrypt:N:r:p:salt:hash form."
+            if "$" in hashed:
+                detail += ("\nIt still uses the old '$' separator, which compose mangles —\n"
+                           "every login returns 401. Re-run:  python3 setup.py")
+            report(FAIL, "Password hash format", detail)
+        else:
+            report(OK, "Password hash format", "scrypt, ':'-separated")
+        if password:
+            report(WARN, "Admin password source",
+                   "Both ADMIN_PASSWORD and ADMIN_PASSWORD_HASH are set. The hash\n"
+                   "wins, so the plaintext one is ignored — delete it to avoid doubt.")
+    elif password:
+        # Supported: the entrypoint hashes this at boot, and the plaintext never
+        # leaves the file.
+        note = "ADMIN_PASSWORD set — hashed with scrypt at container start."
+        if password.lower() in WEAK_PASSWORDS:
+            report(WARN, "Admin password strength",
+                   f"{note}\nBut '{password}' is trivially guessable, and this account has\n"
+                   f"effective root on the host. Choose something long and unique.")
+        else:
+            report(OK, "Admin password", note)
     else:
-        report(OK, "Password hash format", "scrypt, ':'-separated")
+        report(OK, "Credentials", "backend/.env sets no password — one is generated at\n"
+                                  "first boot and persisted to the data volume.")
 
-    if len(env["JWT_SECRET_KEY"]) < 32:
+    if "ADMIN_USERNAME" not in env:
+        report(OK, "Admin username", "Not set — defaults to 'admin'.")
+
+    secret = env.get("JWT_SECRET_KEY", "")
+    if not secret:
+        report(OK, "JWT secret", "Not set — generated and persisted at first boot.")
+    elif len(secret) < 32:
         report(WARN, "JWT secret strength",
-               "JWT_SECRET_KEY is shorter than setup.py generates (64 hex chars).")
+               f"JWT_SECRET_KEY is {len(secret)} characters; setup.py generates 64 hex.\n"
+               f"It signs every session token, so a guessable one is a full bypass.")
     else:
         report(OK, "JWT secret strength")
 
@@ -243,7 +272,7 @@ def check_nginx() -> None:
     if not installed:
         report(OK, "nginx (optional)",
                "Installed but no serverctl.conf — fine unless you want port 80.\n"
-               "See Readme.md for the cp/ln -s command.")
+               "See docs/configuration.md for the cp/ln -s command.")
         return
 
     code, out = run(["nginx", "-t"])

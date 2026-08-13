@@ -17,7 +17,12 @@ services:
 
     # Optional: on a first run there is no backend/.env yet, and the entrypoint
     # bootstraps credentials itself. Set a password by creating this file with
-    # ADMIN_PASSWORD=... (see the Readme), or let the entrypoint generate one.
+    # ADMIN_PASSWORD=... (see docs/configuration.md), or let the entrypoint
+    # generate one.
+    #
+    # The `path:`/`required:` long form needs Compose v2.24+ (Jan 2024). On an
+    # older plugin this fails to parse with a message that does not mention the
+    # version; check with `docker compose version`.
     env_file:
       - path: ./backend/.env
         required: false
