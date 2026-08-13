@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import {
+  apiFetch,
+  clearToken,
+  getHasToken,
+  getHasTokenServer,
+  subscribeToken,
+} from "@/lib/api";
 import SectionCard from "@/components/SectionCard";
 import StatTile from "@/components/StatTile";
 import Skeleton from "@/components/Skeleton";
@@ -19,6 +25,17 @@ const C = {
 } as const;
 
 const HISTORY_LEN = 40;
+
+/** A snapshot list, or null while the first snapshot is still in flight.
+ *
+ * Each collector is wrapped server-side, so a field is `{error: "..."}` when that
+ * one collector failed. Treat that as "nothing to show" so a single broken
+ * collector empties its own panel instead of throwing during render.
+ */
+function listFrom<T>(value: T[] | { error: string } | undefined): T[] | null {
+  if (value === undefined) return null;
+  return Array.isArray(value) ? value : [];
+}
 
 const ic = (path: React.ReactNode) => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -40,15 +57,27 @@ const Icons = {
   stop: ic(<rect x="6" y="6" width="12" height="12" rx="1.5" />),
 };
 
+// /system/monitor returns the whole cached snapshot, ports/tunnels/ssh included.
+// Everything below the metrics used to be fetched again from its own endpoint on
+// its own timer, which meant four extra requests per cycle for data the server
+// had already assembled and served. They are read from here instead; the
+// dedicated endpoints still exist for API clients.
 type MonitorSnapshot = {
   cpu_percent?: number;
   ram?: { total_gb: number; used_gb: number; cached_gb: number; percent: number } | { error: string };
   disk?: { total_gb: number; used_gb: number; percent: number } | { error: string };
   temperature?: number | null;
   docker_running?: string[] | { error: string };
+  ports?: Port[] | { error: string };
+  cloudflared?: Tunnel[] | { error: string };
+  ssh_active?: ActiveSession[] | { error: string };
+  ssh_history?: LoginHistoryEntry[] | { error: string };
 };
 
-type Port = { address: string; port: string; process: string | null };
+// "local" = loopback only, "all" = bound on every interface, otherwise the
+// specific address. The collector merges the two-to-four rows `ss` prints per
+// service (IPv4/IPv6 x tcp/udp) into one, keeping the widest scope.
+type Port = { port: string; process: string | null; scope: string };
 type Tunnel = { hostname: string; service: string; healthy: boolean };
 type ActiveSession = { user: string; tty: string; login_time: string; host: string | null };
 type LoginHistoryEntry = {
@@ -69,49 +98,107 @@ function push(arr: Point[], t: number, v: number | null): Point[] {
   return next.length > HISTORY_LEN ? next.slice(next.length - HISTORY_LEN) : next;
 }
 
+// ---- one shared 1-second ticker ---------------------------------------------
+//
+// The wall clock and the session timer both need to advance every second. Holding
+// that in the dashboard's own state re-rendered the *entire* page once a second —
+// every table, every chart — to repaint two spans. Subscribing leaf components to
+// an external store keeps the tick where it belongs: only the two components that
+// display a time re-render, and there is one interval for the page rather than one
+// per consumer.
+const tickListeners = new Set<() => void>();
+let tickTimer: ReturnType<typeof setInterval> | null = null;
+let tickNow = 0;
+let sessionStart = 0;
+
+function subscribeTick(onChange: () => void): () => void {
+  tickListeners.add(onChange);
+  if (tickTimer === null) {
+    // First subscriber: the session starts here, which is also what makes the
+    // timer restart cleanly after a logout and a fresh login.
+    tickNow = Date.now();
+    sessionStart = tickNow;
+    tickTimer = setInterval(() => {
+      tickNow = Date.now();
+      tickListeners.forEach((listener) => listener());
+    }, 1000);
+  }
+  return () => {
+    tickListeners.delete(onChange);
+    if (tickListeners.size === 0 && tickTimer !== null) {
+      clearInterval(tickTimer);
+      tickTimer = null;
+    }
+  };
+}
+
+const getTick = () => tickNow;
+// 0 during prerender and hydration: there is no clock at build time, and emitting
+// a real one would not match what the client hydrates with.
+const getTickServer = () => 0;
+
+function useTick() {
+  return useSyncExternalStore(subscribeTick, getTick, getTickServer);
+}
+
+/** Fetches, but does not store. Separating the two keeps the polling effect free
+ *  of a synchronous setState and lets the post-action refresh reuse the request
+ *  without duplicating the error handling. Returns null when the call failed —
+ *  a 401 has already redirected by then. */
+async function fetchContainers(): Promise<Container[] | null> {
+  try {
+    return await apiFetch("/docker/containers");
+  } catch {
+    return null;
+  }
+}
+
 function LiveClock() {
-  const [now, setNow] = useState<Date | null>(null);
-  useEffect(() => {
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const now = useTick();
   if (!now) return <span className="tabular-nums">--:--:--</span>;
-  return <span className="tabular-nums">{now.toLocaleTimeString([], { hour12: false })}</span>;
+  return <span className="tabular-nums">{new Date(now).toLocaleTimeString([], { hour12: false })}</span>;
+}
+
+function SessionUptime() {
+  const now = useTick();
+  const seconds = now && sessionStart ? Math.floor((now - sessionStart) / 1000) : 0;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return (
+    <span className="tabular-nums">
+      session {pad(Math.floor(seconds / 3600))}:{pad(Math.floor((seconds % 3600) / 60))}:{pad(seconds % 60)}
+    </span>
+  );
 }
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [checkingAuth, setCheckingAuth] = useState(true);
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [hist, setHist] = useState<Hist>({ cpu: [], ram: [], disk: [], temp: [] });
-  const [ports, setPorts] = useState<Port[] | null>(null);
-  const [tunnels, setTunnels] = useState<Tunnel[] | null>(null);
   const [securityScan, setSecurityScan] = useState<unknown>(null);
   const [scanning, setScanning] = useState(false);
-  const [activeSessions, setActiveSessions] = useState<ActiveSession[] | null>(null);
-  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[] | null>(null);
   const [containers, setContainers] = useState<Container[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const mountedAt = useRef(Date.now());
-  const [uptime, setUptime] = useState(0);
+
+  // Derived from the one snapshot rather than held in their own state: no extra
+  // request, no extra render, and they cannot drift out of step with the metrics.
+  const ports = listFrom<Port>(monitor?.ports);
+  const tunnels = listFrom<Tunnel>(monitor?.cloudflared);
+  const activeSessions = listFrom<ActiveSession>(monitor?.ssh_active);
+  const loginHistory = listFrom<LoginHistoryEntry>(monitor?.ssh_history);
+
+  // null until hydration has run and localStorage can be read; false means no
+  // session. Read from the store instead of copied into state by an effect, which
+  // also means a logout in another tab takes effect here.
+  const hasToken = useSyncExternalStore(subscribeToken, getHasToken, getHasTokenServer);
+  const checkingAuth = hasToken !== true;
 
   useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    setCheckingAuth(false);
-  }, [router]);
+    if (hasToken === false) router.replace("/login");
+  }, [hasToken, router]);
 
-  useEffect(() => {
-    if (checkingAuth) return;
-    const id = setInterval(() => setUptime(Math.floor((Date.now() - mountedAt.current) / 1000)), 1000);
-    return () => clearInterval(id);
-  }, [checkingAuth]);
 
   useEffect(() => {
     if (checkingAuth) return;
@@ -144,10 +231,8 @@ export default function DashboardPage() {
     if (checkingAuth) return;
     let cancelled = false;
     async function run() {
-      try {
-        const data = await apiFetch("/network/ports");
-        if (!cancelled) setPorts(data);
-      } catch {}
+      const data = await fetchContainers();
+      if (!cancelled && data) setContainers(data);
     }
     run();
     const interval = setInterval(run, 5000);
@@ -157,77 +242,10 @@ export default function DashboardPage() {
     };
   }, [checkingAuth]);
 
-  useEffect(() => {
-    if (checkingAuth) return;
-    let cancelled = false;
-    async function run() {
-      try {
-        const data = await apiFetch("/cloudflared/tunnels");
-        if (!cancelled) setTunnels(data);
-      } catch {}
-    }
-    run();
-    const interval = setInterval(run, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [checkingAuth]);
-
-  useEffect(() => {
-    if (checkingAuth) return;
-    let cancelled = false;
-    async function run() {
-      try {
-        const data = await apiFetch("/ssh/active");
-        if (!cancelled) setActiveSessions(data);
-      } catch {}
-    }
-    run();
-    const interval = setInterval(run, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [checkingAuth]);
-
-  useEffect(() => {
-    if (checkingAuth) return;
-    let cancelled = false;
-    async function run() {
-      try {
-        const data = await apiFetch("/ssh/history");
-        if (!cancelled) setLoginHistory(data);
-      } catch {}
-    }
-    run();
-    const interval = setInterval(run, 10000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [checkingAuth]);
-
-  const loadContainers = useCallback(async () => {
-    try {
-      const data: Container[] = await apiFetch("/docker/containers");
-      setContainers(data);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    if (checkingAuth) return;
-    loadContainers();
-    const interval = setInterval(loadContainers, 5000);
-    return () => clearInterval(interval);
-  }, [checkingAuth, loadContainers]);
-
-  // clear selection if the chosen container vanished
-  useEffect(() => {
-    if (selected && containers && !containers.some((c) => c.name === selected)) {
-      setSelected(null);
-    }
-  }, [containers, selected]);
+  // No effect is needed to clear a selection whose container vanished: `sel` below
+  // resolves the name against the current list every render, so a stale name
+  // already reads as "nothing selected" everywhere it matters. Nulling the state
+  // from an effect only added a second render pass to reach the same place.
 
   async function runAction(path: string, body?: object) {
     setError(null);
@@ -249,7 +267,10 @@ export default function DashboardPage() {
   async function runDocker(path: string) {
     if (!selected) return;
     await runAction(path, { name: selected });
-    loadContainers();
+    // Refresh immediately so the status badge reflects the action rather than
+    // waiting out the remainder of the 5-second poll.
+    const data = await fetchContainers();
+    if (data) setContainers(data);
   }
 
   async function runSecurityScan() {
@@ -277,12 +298,6 @@ export default function DashboardPage() {
   const sel = containers?.find((c) => c.name === selected) ?? null;
   const selRunning = sel?.status === "running";
   const runningCount = containers?.filter((c) => c.status === "running").length ?? 0;
-
-  const uptimeStr = `${Math.floor(uptime / 3600)
-    .toString()
-    .padStart(2, "0")}:${Math.floor((uptime % 3600) / 60)
-    .toString()
-    .padStart(2, "0")}:${(uptime % 60).toString().padStart(2, "0")}`;
 
   return (
     <div className="relative flex flex-1 flex-col items-center overflow-hidden bg-zinc-50 px-4 py-8 sm:px-6 lg:px-8 dark:bg-black">
@@ -313,7 +328,7 @@ export default function DashboardPage() {
                 <span className="text-zinc-300 dark:text-zinc-700">·</span>
                 <LiveClock />
                 <span className="text-zinc-300 dark:text-zinc-700">·</span>
-                <span className="tabular-nums">session {uptimeStr}</span>
+                <SessionUptime />
               </div>
             </div>
           </div>
@@ -370,11 +385,31 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <p className="truncate text-xs text-zinc-500">{t.service}</p>
-                      <iframe
-                        src={`https://${t.hostname}`}
-                        className="h-36 w-full rounded-lg border border-black/[.08] bg-white transition-transform group-hover/tunnel:scale-[1.01] dark:border-white/[.12]"
-                        sandbox="allow-scripts allow-same-origin"
-                      />
+                      {/* A link, not a live <iframe> preview.
+                       *
+                       * The preview that used to be here never rendered: the
+                       * dashboard's CSP sets no frame-src, so frames fall back to
+                       * `default-src 'self'` and the browser refused every one of
+                       * them — the panel only ever showed broken grey boxes.
+                       *
+                       * Making it work would mean allowing `frame-src https:`, i.e.
+                       * embedding arbitrary third-party pages inside a
+                       * root-equivalent admin panel, and the old sandbox
+                       * ("allow-scripts allow-same-origin") is defeated outright if
+                       * a tunnel points back at this panel's own origin — which the
+                       * first documented example does. The health dot above already
+                       * carries the useful signal, so this just offers a way in. */}
+                      <a
+                        href={`https://${t.hostname}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="mt-1 inline-flex w-fit items-center gap-1 rounded-lg border border-black/[.08] px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-emerald-500/40 hover:text-emerald-600 dark:border-white/[.12] dark:text-zinc-300 dark:hover:border-emerald-400/40 dark:hover:text-emerald-400"
+                      >
+                        Open
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M7 17L17 7M17 7H9M17 7v8" />
+                        </svg>
+                      </a>
                     </div>
                   ))}
                 </div>
@@ -515,7 +550,7 @@ export default function DashboardPage() {
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-red-500 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-red-600 active:scale-[.97] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {Icons.stop}
-                  Kill
+                  Stop
                 </button>
               </div>
               <p className="text-center text-xs text-zinc-400 dark:text-zinc-500">
@@ -536,21 +571,38 @@ export default function DashboardPage() {
                   <table className="w-full text-left text-sm">
                     <thead className="sticky top-0 bg-white/80 backdrop-blur dark:bg-zinc-900/80">
                       <tr className="text-zinc-500">
-                        <th className="pb-2 pr-3 font-normal">Address</th>
-                        <th className="pb-2 pr-3 font-normal">Port</th>
-                        <th className="pb-2 font-normal">Process</th>
+                        <th className="pb-2 pr-3 font-normal">Application</th>
+                        <th className="pb-2 font-normal">Port</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {ports.map((p, i) => (
-                        <tr key={i} className="text-black transition-colors hover:bg-black/[.03] dark:text-zinc-50 dark:hover:bg-white/[.04]">
-                          <td className="py-1 pr-3 tabular-nums">{p.address}</td>
-                          <td className="py-1 pr-3">
-                            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-600 tabular-nums dark:text-emerald-400">{p.port}</span>
-                          </td>
-                          <td className="py-1 text-zinc-600 dark:text-zinc-300">{p.process ?? "-"}</td>
-                        </tr>
-                      ))}
+                      {ports.map((p) => {
+                        // Whether a port is loopback-only or reachable from the
+                        // network is the one thing in this panel that carries
+                        // risk, so it survives the two-column layout as colour
+                        // on the badge rather than a raw address column.
+                        const exposed = p.scope === "all";
+                        return (
+                          <tr key={`${p.process ?? "?"}:${p.port}`} className="text-black transition-colors hover:bg-black/[.03] dark:text-zinc-50 dark:hover:bg-white/[.04]">
+                            <td className="py-1 pr-3 text-zinc-600 dark:text-zinc-300">{p.process ?? "-"}</td>
+                            <td className="py-1">
+                              <span
+                                title={exposed ? "Listening on all interfaces — reachable from the network" : `Bound to ${p.scope}`}
+                                className={`rounded-md px-1.5 py-0.5 font-medium tabular-nums ${
+                                  exposed
+                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                }`}
+                              >
+                                {p.port}
+                              </span>
+                              {exposed && (
+                                <span className="ml-2 text-xs text-amber-600/80 dark:text-amber-400/80">all interfaces</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
